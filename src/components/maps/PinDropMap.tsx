@@ -11,8 +11,8 @@ interface PinDropMapProps {
 
 export function PinDropMap({ lat, lng, onPinDrop, height = '300px' }: PinDropMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<import('leaflet').Map | null>(null);
-  const markerRef = useRef<import('leaflet').Marker | null>(null);
+  const mapRef       = useRef<import('leaflet').Map | null>(null);
+  const markerRef    = useRef<import('leaflet').Marker | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -21,49 +21,55 @@ export function PinDropMap({ lat, lng, onPinDrop, height = '300px' }: PinDropMap
     const init = async () => {
       const L = (await import('leaflet')).default;
       delete (L.Icon.Default.prototype as { _getIconUrl?: unknown })._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
 
-      const centerLat = lat ?? parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LAT ?? '19.0760');
-      const centerLng = lng ?? parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LNG ?? '72.8777');
+      const centerLat = lat ?? parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LAT ?? '10.8505');
+      const centerLng = lng ?? parseFloat(process.env.NEXT_PUBLIC_DEFAULT_MAP_CENTER_LNG ?? '76.2711');
 
-      const map = L.map(containerRef.current!, { center: [centerLat, centerLng], zoom: 14 });
+      const map = L.map(containerRef.current!, { center: [centerLat, centerLng], zoom: 13 });
 
+      // Satellite base
       L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-        { attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 20 }
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        { attribution: 'Tiles © Esri', maxZoom: 19 }
       ).addTo(map);
 
-      // Custom drop pin icon
+      // Labels overlay
+      L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+        { attribution: '', maxZoom: 19, opacity: 0.85 }
+      ).addTo(map);
+
+      // Custom teardrop pin icon
       const dropIcon = L.divIcon({
         className: '',
-        html: `<div style="width:36px;height:36px;background:#3b82f6;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 3px 10px rgba(0,0,0,0.3)"></div>`,
-        iconSize: [36, 36],
-        iconAnchor: [18, 36],
+        html: `<div style="
+          width:32px;height:32px;
+          background:linear-gradient(135deg,#3b82f6,#06b6d4);
+          border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+          border:3px solid white;box-shadow:0 4px 12px rgba(59,130,246,0.5);
+        "></div>`,
+        iconSize:   [32, 32],
+        iconAnchor: [16, 32],
       });
 
       if (lat && lng) {
         markerRef.current = L.marker([lat, lng], { icon: dropIcon, draggable: true }).addTo(map);
-        markerRef.current.on('dragend', (e) => {
-          const pos = (e.target as import('leaflet').Marker).getLatLng();
-          onPinDrop(pos.lat, pos.lng);
+        markerRef.current.on('dragend', e => {
+          const p = (e.target as import('leaflet').Marker).getLatLng();
+          onPinDrop(p.lat, p.lng);
         });
       }
 
-      map.on('click', (e) => {
+      map.on('click', e => {
         const { lat: newLat, lng: newLng } = e.latlng;
         onPinDrop(newLat, newLng);
-
         if (markerRef.current) {
           markerRef.current.setLatLng([newLat, newLng]);
         } else {
           markerRef.current = L.marker([newLat, newLng], { icon: dropIcon, draggable: true }).addTo(map);
-          markerRef.current.on('dragend', (ev) => {
-            const pos = (ev.target as import('leaflet').Marker).getLatLng();
-            onPinDrop(pos.lat, pos.lng);
+          markerRef.current.on('dragend', ev => {
+            const p = (ev.target as import('leaflet').Marker).getLatLng();
+            onPinDrop(p.lat, p.lng);
           });
         }
       });
@@ -77,16 +83,16 @@ export function PinDropMap({ lat, lng, onPinDrop, height = '300px' }: PinDropMap
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="relative rounded-2xl overflow-hidden border-2 border-dashed border-blue-300 bg-blue-50" style={{ height }}>
+    <div className="relative rounded-2xl overflow-hidden border-2 border-blue-400/40 shadow-lg" style={{ height }}>
       <div ref={containerRef} className="w-full h-full" />
       {!isLoaded && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-blue-400">
-          <MapPin className="w-8 h-8" />
-          <span className="text-sm">Loading map…</span>
+        <div className="absolute inset-0 bg-gray-900 flex flex-col items-center justify-center gap-2 text-gray-300">
+          <span className="text-2xl animate-spin">🛰️</span>
+          <span className="text-sm">Loading satellite map…</span>
         </div>
       )}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg pointer-events-none">
-        Tap anywhere to drop pin
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-blue-600/90 backdrop-blur-sm text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow-lg pointer-events-none">
+        📍 Tap map or drag pin to set exact location
       </div>
     </div>
   );

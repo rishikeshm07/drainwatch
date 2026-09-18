@@ -16,7 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/toast';
 import { cn, STATUS_CONFIG, PRIORITY_CONFIG, getSLAInfo, formatTimeAgo } from '@/lib/utils';
-import { MOCK_TICKETS, MOCK_WARDS } from '@/lib/mock-data';
+import { getAllTickets, saveTicket } from '@/lib/ticket-store';
+import { MOCK_WARDS } from '@/lib/mock-data';
 import type { Ticket, TicketStatus } from '@/types';
 
 // ── Kanban column config ─────────────────────────────────────
@@ -34,7 +35,12 @@ export default function GovDashboard() {
   const { toast } = useToast();
 
   const [user, setUser] = useState<GovUser | null>(null);
-  const [tickets, setTickets] = useState<Ticket[]>(MOCK_TICKETS);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    setTickets(getAllTickets());
+  }, []);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [view, setView] = useState<'kanban' | 'map'>('kanban');
   const [splitView, setSplitView] = useState(true);
@@ -108,9 +114,12 @@ export default function GovDashboard() {
     const ticket = tickets.find(t => t.id === dragging);
     if (!ticket || ticket.status === newStatus) { setDragging(null); setDragOver(null); return; }
 
-    setTickets(prev => prev.map(t =>
-      t.id === dragging ? { ...t, status: newStatus, updated_at: new Date().toISOString() } : t
-    ));
+    setTickets(prev => prev.map(t => {
+      if (t.id !== dragging) return t;
+      const updated = { ...t, status: newStatus, updated_at: new Date().toISOString() };
+      saveTicket(updated);
+      return updated;
+    }));
 
     toast({
       type: 'success',

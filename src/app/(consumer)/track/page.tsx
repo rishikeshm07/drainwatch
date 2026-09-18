@@ -3,35 +3,18 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Search, Loader2, MapPin, Clock, User, AlertOctagon,
-  CheckCircle2, ChevronRight, Ticket, RefreshCw
+  CheckCircle2, ChevronRight, Ticket, RefreshCw, ArrowRight
 } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SeverityBadge } from '@/components/tickets/SeverityBadge';
 import { SLATimer } from '@/components/tickets/SLATimer';
 import { BeforeAfterSlider } from '@/components/tickets/BeforeAfterSlider';
+import { EmptyState } from '@/components/ui/empty-state';
 import { cn, STATUS_CONFIG, PRIORITY_CONFIG, formatTimeAgo } from '@/lib/utils';
-import { MOCK_TICKETS } from '@/lib/mock-data';
-import type { Ticket as TicketType, TicketEvent } from '@/types';
-
-// Mock timeline events
-const MOCK_EVENTS: Record<string, TicketEvent[]> = {
-  't1': [
-    { id: 'e1', ticket_id: 't1', event_type: 'created',       old_value: null, new_value: 'open',        note: 'Report submitted by citizen', actor_id: null, actor_name: 'System',       created_at: MOCK_TICKETS[0].created_at },
-    { id: 'e2', ticket_id: 't1', event_type: 'escalated',     old_value: 'open', new_value: 'escalated', note: 'SLA of 48h exceeded',         actor_id: null, actor_name: 'System',       created_at: new Date(Date.now() - 3_600_000).toISOString() },
-  ],
-  't2': [
-    { id: 'e3', ticket_id: 't2', event_type: 'created',       old_value: null,   new_value: 'open',        note: 'Report submitted',          actor_id: null, actor_name: 'System',       created_at: MOCK_TICKETS[1].created_at },
-    { id: 'e4', ticket_id: 't2', event_type: 'assigned',      old_value: null,   new_value: 'Sunil Patil', note: 'Assigned to ward officer',  actor_id: 'u1',  actor_name: 'Sunil Patil',  created_at: new Date(Date.now() - 15_600_000).toISOString() },
-    { id: 'e5', ticket_id: 't2', event_type: 'status_change', old_value: 'open', new_value: 'in_progress', note: 'Team dispatched to site',   actor_id: 'u1',  actor_name: 'Sunil Patil',  created_at: new Date(Date.now() - 12_000_000).toISOString() },
-  ],
-  't3': [
-    { id: 'e6', ticket_id: 't3', event_type: 'created',       old_value: null,           new_value: 'open',     note: 'Report submitted',            actor_id: null, actor_name: 'System',     created_at: MOCK_TICKETS[2].created_at },
-    { id: 'e7', ticket_id: 't3', event_type: 'assigned',      old_value: null,           new_value: 'Meena',    note: 'Assigned to ward officer',    actor_id: 'u2', actor_name: 'Meena Joshi', created_at: new Date(Date.now() - 28_000_000).toISOString() },
-    { id: 'e8', ticket_id: 't3', event_type: 'status_change', old_value: 'open',         new_value: 'in_progress', note: 'Crew on the way',          actor_id: 'u2', actor_name: 'Meena Joshi', created_at: new Date(Date.now() - 25_000_000).toISOString() },
-    { id: 'e9', ticket_id: 't3', event_type: 'resolved',      old_value: 'in_progress',  new_value: 'resolved', note: 'Drain cleared. Debris removed.', actor_id: 'u2', actor_name: 'Meena Joshi', created_at: MOCK_TICKETS[2].resolved_at! },
-  ],
-};
+import { getTicketById, getAllTickets } from '@/lib/ticket-store';
+import type { Ticket as TicketType } from '@/types';
 
 const EVENT_ICONS: Record<string, React.ReactNode> = {
   created:       <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center"><Ticket className="w-3.5 h-3.5 text-blue-600" /></div>,
@@ -41,14 +24,41 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
   resolved:      <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /></div>,
 };
 
+function buildTimeline(ticket: TicketType) {
+  const events = [
+    { id: 'e1', type: 'created', label: 'Complaint Registered', note: `Report submitted${ticket.reporter_name ? ` by ${ticket.reporter_name}` : ' anonymously'}`, time: ticket.created_at },
+  ];
+  if (ticket.assigned_officer_name) {
+    events.push({ id: 'e2', type: 'assigned', label: 'Assigned to Officer', note: `Assigned to ${ticket.assigned_officer_name} — Ward ${ticket.ward_number}`, time: ticket.updated_at });
+  }
+  if (ticket.status === 'in_progress') {
+    events.push({ id: 'e3', type: 'status_change', label: 'Work In Progress', note: 'Ward team dispatched to site', time: ticket.updated_at });
+  }
+  if (ticket.status === 'escalated' && ticket.escalated_at) {
+    events.push({ id: 'e4', type: 'escalated', label: 'Escalated', note: `SLA exceeded. Forwarded to ${ticket.escalated_to}`, time: ticket.escalated_at });
+  }
+  if (ticket.status === 'resolved' && ticket.resolved_at) {
+    events.push({ id: 'e5', type: 'resolved', label: 'Issue Resolved', note: ticket.resolution_notes ?? 'Drain cleared by ward team.', time: ticket.resolved_at });
+  }
+  return events;
+}
+
 function TrackContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const [query, setQuery] = useState(searchParams.get('id') ?? '');
+  const router       = useRouter();
+  const [query, setQuery]   = useState(searchParams.get('id') ?? '');
   const [loading, setLoading] = useState(false);
-  const [ticket, setTicket] = useState<TicketType | null>(null);
-  const [events, setEvents] = useState<TicketEvent[]>([]);
-  const [error, setError] = useState('');
+  const [ticket, setTicket]   = useState<TicketType | null>(null);
+  const [error, setError]     = useState('');
+  const [recentTickets, setRecentTickets] = useState<TicketType[]>([]);
+
+  // Load recent tickets for quick access
+  useEffect(() => {
+    const all   = getAllTickets();
+    // Show only user-submitted (non-mock) tickets at top
+    const local = all.filter(t => t.id.startsWith('local-'));
+    setRecentTickets(local.slice(0, 3));
+  }, []);
 
   // Auto-search if ID in URL
   useEffect(() => {
@@ -57,40 +67,37 @@ function TrackContent() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doSearch = async (searchId?: string) => {
-    const q = (searchId ?? query).trim().toUpperCase();
+    const q = (searchId ?? query).trim();
     if (!q) return;
     setLoading(true);
     setError('');
     setTicket(null);
+    await new Promise(r => setTimeout(r, 400));
 
-    await new Promise(r => setTimeout(r, 600));
-
-    // Search mock data
-    const found = MOCK_TICKETS.find(
-      t => t.ticket_number === q || t.ticket_number.includes(q)
-    );
-
+    const found = getTicketById(q);
     if (found) {
       setTicket(found);
-      setEvents(MOCK_EVENTS[found.id] ?? []);
+      // Update URL without reload
+      window.history.replaceState(null, '', `/track?id=${found.ticket_number}`);
     } else {
-      setError(`No report found for "${q}". Please check your ticket ID.`);
+      setError(`No report found for "${q}". Check your ticket ID — it looks like DW-2026-XXXXX`);
     }
     setLoading(false);
   };
 
-  const statusCfg = ticket ? STATUS_CONFIG[ticket.status] : null;
+  const statusCfg   = ticket ? STATUS_CONFIG[ticket.status] : null;
   const priorityCfg = ticket ? PRIORITY_CONFIG[ticket.priority] : null;
+  const timeline    = ticket ? buildTimeline(ticket) : [];
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-1">Track Your Report</h1>
-        <p className="text-sm text-gray-500">Enter your ticket ID to see the current status and full timeline.</p>
+        <h1 className="text-2xl font-bold text-gray-900 mb-1">Track Your Complaint</h1>
+        <p className="text-sm text-gray-500">Enter your ticket ID to see real-time status and full activity timeline.</p>
       </div>
 
       {/* Search bar */}
-      <div className="flex gap-3 mb-8">
+      <div className="flex gap-3 mb-6">
         <div className="flex-1 relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input
@@ -101,30 +108,61 @@ function TrackContent() {
             className="pl-10 font-mono tracking-wide"
           />
         </div>
-        <Button onClick={() => doSearch()} disabled={loading || !query}>
+        <Button onClick={() => doSearch()} disabled={loading || !query.trim()}>
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
         </Button>
       </div>
 
-      {/* Error state */}
+      {/* Recent submissions quick-access */}
+      {recentTickets.length > 0 && !ticket && !error && (
+        <div className="mb-6">
+          <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Your recent reports</p>
+          <div className="space-y-2">
+            {recentTickets.map(t => {
+              const cfg = STATUS_CONFIG[t.status];
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => { setQuery(t.ticket_number); doSearch(t.ticket_number); }}
+                  className="w-full flex items-center justify-between p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', cfg.dot)} />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800 group-hover:text-blue-800 truncate max-w-[260px]">{t.title}</p>
+                      <p className="text-xs text-gray-400 font-mono">{t.ticket_number} · {formatTimeAgo(t.created_at)}</p>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-blue-400 shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
       {error && (
         <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl mb-6 animate-fade-up">
           <AlertOctagon className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
           <div>
             <p className="font-semibold text-red-800 text-sm">{error}</p>
-            <p className="text-red-600 text-xs mt-1">Try: DW-2026-00001, DW-2026-00002, DW-2026-00003, DW-2026-00004, or DW-2026-00005</p>
+            <p className="text-red-600 text-xs mt-1">
+              Demo tickets: DW-2026-00001 through DW-2026-00006
+            </p>
           </div>
         </div>
       )}
 
-      {/* Ticket result */}
+      {/* Result */}
       {ticket && statusCfg && priorityCfg && (
         <div className="animate-fade-up space-y-5">
+
           {/* Status hero */}
           <div className={cn('rounded-2xl border p-5', statusCfg.bg)}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 flex-wrap mb-2">
                   <span className={cn('inline-flex items-center gap-1.5 text-sm font-bold', statusCfg.color)}>
                     <span className={cn('w-2.5 h-2.5 rounded-full animate-pulse', statusCfg.dot)} />
                     {statusCfg.label}
@@ -132,6 +170,11 @@ function TrackContent() {
                   <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-lg', priorityCfg.bg, priorityCfg.color)}>
                     {priorityCfg.label} Priority
                   </span>
+                  {ticket.ward_number && (
+                    <span className="text-xs bg-white/60 border border-current/20 px-2 py-0.5 rounded-lg font-semibold text-gray-600">
+                      Ward {ticket.ward_number} — {ticket.ward?.ward_name}
+                    </span>
+                  )}
                 </div>
                 <p className="font-mono text-xs text-gray-500 mb-1">{ticket.ticket_number}</p>
                 <h2 className="text-lg font-bold text-gray-900">{ticket.title}</h2>
@@ -147,7 +190,7 @@ function TrackContent() {
               <div>
                 <p className="font-semibold text-purple-800 text-sm">Escalated to Higher Authority</p>
                 <p className="text-purple-600 text-xs mt-0.5">
-                  SLA was exceeded. This report has been forwarded to: {ticket.escalated_to}
+                  SLA breached. Forwarded to: <strong>{ticket.escalated_to ?? 'Kerala Municipal Commissioner'}</strong>
                 </p>
               </div>
             </div>
@@ -156,10 +199,10 @@ function TrackContent() {
           {/* Meta grid */}
           <div className="grid sm:grid-cols-2 gap-3">
             {[
-              { icon: MapPin,       label: 'Location',     value: ticket.address ?? `${ticket.latitude.toFixed(4)}, ${ticket.longitude.toFixed(4)}` },
-              { icon: Clock,        label: 'Reported',     value: formatTimeAgo(ticket.created_at) },
-              ticket.ward_number ? { icon: ChevronRight,  label: 'Ward',         value: `Ward ${ticket.ward_number} — ${ticket.ward?.ward_name}` } : null,
-              ticket.assigned_officer_name ? { icon: User, label: 'Assigned To', value: ticket.assigned_officer_name } : null,
+              ticket.address         ? { icon: MapPin,        label: 'Location',    value: ticket.address } : null,
+              { icon: Clock,          label: 'Reported',    value: formatTimeAgo(ticket.created_at) },
+              ticket.ward_number     ? { icon: ChevronRight, label: 'Ward',         value: `Ward ${ticket.ward_number} — ${ticket.ward?.ward_name}` } : null,
+              ticket.assigned_officer_name ? { icon: User,   label: 'Assigned To', value: ticket.assigned_officer_name } : null,
             ].filter(Boolean).map((item, i) => item && (
               <div key={i} className="flex items-start gap-2.5 p-3.5 bg-gray-50 rounded-xl border border-gray-100">
                 <item.icon className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
@@ -184,51 +227,40 @@ function TrackContent() {
             <SLATimer createdAt={ticket.created_at} slaHours={ticket.sla_hours} />
           )}
 
-          {/* Before/After slider for resolved tickets */}
-          {ticket.status === 'resolved' && ticket.photo_url && ticket.resolved_photo_url && (
-            <div className="space-y-2">
-              <p className="text-sm font-semibold text-gray-700">Resolved — Before &amp; After</p>
-              <BeforeAfterSlider
-                beforeUrl={ticket.photo_url}
-                afterUrl={ticket.resolved_photo_url}
-              />
+          {/* Before/After or single photo */}
+          {ticket.photo_url && ticket.resolved_photo_url ? (
+            <div>
+              <p className="text-sm font-semibold text-gray-700 mb-2">✅ Resolved — Before &amp; After</p>
+              <BeforeAfterSlider beforeUrl={ticket.photo_url} afterUrl={ticket.resolved_photo_url} />
               {ticket.resolution_notes && (
-                <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-sm text-emerald-800">
+                <div className="mt-2 p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-sm text-emerald-800">
                   <span className="font-semibold">Officer notes: </span>{ticket.resolution_notes}
                 </div>
               )}
             </div>
-          )}
-
-          {/* Original photo */}
-          {ticket.photo_url && ticket.status !== 'resolved' && (
+          ) : ticket.photo_url ? (
             <div>
-              <p className="text-sm font-semibold text-gray-700 mb-2">Submitted Photo</p>
+              <p className="text-sm font-semibold text-gray-700 mb-2">📸 Submitted Photo</p>
               <img src={ticket.photo_url} alt="Blockage" className="w-full rounded-2xl border border-gray-200 shadow-sm" />
             </div>
-          )}
+          ) : null}
 
           {/* Timeline */}
-          {events.length > 0 && (
+          {timeline.length > 0 && (
             <div>
-              <p className="text-sm font-semibold text-gray-700 mb-4">Activity Timeline</p>
+              <p className="text-sm font-semibold text-gray-700 mb-4">📅 Activity Timeline</p>
               <div className="relative pl-4">
                 <div className="absolute left-[18px] top-0 bottom-0 w-0.5 bg-gray-100" />
                 <div className="space-y-5">
-                  {events.map((ev, i) => (
+                  {timeline.map(ev => (
                     <div key={ev.id} className="flex items-start gap-3 relative">
-                      <div className="shrink-0 -ml-4 z-10">{EVENT_ICONS[ev.event_type] ?? EVENT_ICONS.status_change}</div>
+                      <div className="shrink-0 -ml-4 z-10">{EVENT_ICONS[ev.type] ?? EVENT_ICONS.status_change}</div>
                       <div className="flex-1 pb-1">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-gray-800 capitalize">
-                            {ev.event_type.replace('_', ' ')}
-                          </p>
-                          <p className="text-xs text-gray-400 whitespace-nowrap">{formatTimeAgo(ev.created_at)}</p>
+                          <p className="text-sm font-semibold text-gray-800">{ev.label}</p>
+                          <p className="text-xs text-gray-400 whitespace-nowrap">{formatTimeAgo(ev.time)}</p>
                         </div>
-                        {ev.note && <p className="text-xs text-gray-500 mt-0.5">{ev.note}</p>}
-                        {ev.actor_name && (
-                          <p className="text-xs text-gray-400 mt-0.5">by {ev.actor_name}</p>
-                        )}
+                        <p className="text-xs text-gray-500 mt-0.5">{ev.note}</p>
                       </div>
                     </div>
                   ))}
@@ -250,11 +282,16 @@ function TrackContent() {
 
       {/* Empty state */}
       {!ticket && !loading && !error && (
-        <div className="text-center py-16 text-gray-400">
-          <Ticket className="w-12 h-12 mx-auto mb-4 opacity-20" />
-          <p className="font-semibold text-gray-500">Enter a ticket ID to get started</p>
-          <p className="text-sm mt-1">e.g. DW-2026-00001</p>
-        </div>
+        <EmptyState
+          emoji="🎫"
+          title="Enter your ticket ID above"
+          description="Your ticket ID was shown after submitting your complaint. It looks like DW-2026-00001"
+          action={
+            <Link href="/report">
+              <Button size="sm">Report a new blockage</Button>
+            </Link>
+          }
+        />
       )}
     </div>
   );
