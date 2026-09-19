@@ -1,25 +1,73 @@
-# Dependencies
+# ============================================================
+# DrainWatch — .gitignore
+# ============================================================
+
+# ── Dependencies ─────────────────────────────────────────────
 node_modules/
 .pnp
 .pnp.js
+.yarn/install-state.gz
 
-# Next.js build output
+# ── Next.js ──────────────────────────────────────────────────
 .next/
 out/
 build/
+.swc/
 
-# Environment variables — NEVER commit these
+# ── Environment variables — NEVER commit these ───────────────
+.env
 .env.local
+.env.development
+.env.production
+.env.test
 .env.*.local
 
-# Vercel
+# ── Vercel ───────────────────────────────────────────────────
 .vercel
 
-# Debug logs
+# ── Supabase local dev ────────────────────────────────────────
+supabase/.temp/
+supabase/functions/.env
+
+# ── Debug & logs ─────────────────────────────────────────────
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+*.log
+logs/
 
-# OS
+# ── Testing ──────────────────────────────────────────────────
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# ── TypeScript ───────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── OS files ─────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Editor & IDE ─────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Misc ─────────────────────────────────────────────────────
+.cache/
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
