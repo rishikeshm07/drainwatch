@@ -205,7 +205,7 @@ export default function ReportPage() {
         priority:        priority as Ticket['priority'],
         ai_severity_tag: aiResult?.tag ?? null,
         ai_confidence:   aiResult?.confidence ?? null,
-        ai_raw_response: null,
+
         photo_url:       photoPreview,   // base64 preview stored locally
         resolved_photo_url: null,
         reporter_name:   form.reporter_name || null,
